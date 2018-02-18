@@ -64,6 +64,10 @@ def gsa_select():
         info.dynRow = request.form.get('dyn-row')
         #info.dynCol = ast.literal_eval(request.form.get('dyn-col'))
         info.id = request.form.get('gsa-id')
+<<<<<<< HEAD
+=======
+        #id = fileDict['GSA_SHP_VARS'][0]
+>>>>>>> d4f6c3c85381b141b922dd84d6bd3efaac02e378
 
         localAutoCorrelation, globalAutoCorrelation, spatialDynamics = gsa_service.runGSA(case_num, info.autoRow,
                                                                                           info.autoCol, info.dynRow,
@@ -71,6 +75,10 @@ def gsa_select():
 
         fileDict['GSA_data'] = ('id-1', localAutoCorrelation, globalAutoCorrelation,
                                 spatialDynamics[0], spatialDynamics[1], spatialDynamics[2], spatialDynamics[3])
+<<<<<<< HEAD
+=======
+        #fileDict['GSA_meta'] = ('data-id-1', 'data-name-1', "NAME_1", np.arange(2014, 2017, 0.25).tolist(), fileDict['GSA_SHP_VARS'][1])
+>>>>>>> d4f6c3c85381b141b922dd84d6bd3efaac02e378
         fileDict['GSA_meta'] = ('data-id-1', 'data-name-1', "NAME_1", np.arange(2014, 2017, 0.25).tolist(), "name-1")
 
         return redirect(url_for('visualize_blueprint.visualize', case_num=case_num))
@@ -117,3 +125,54 @@ def get_autocorrelation(case_num):
         loc, glob = fileDict['ac'][year]
         return jsonify(year=year, loc=loc, glob=glob)
     return jsonify(year="something went wrong", loc=0, glob=0)
+<<<<<<< HEAD
+=======
+
+@gsa_blueprint.route('/geonet', methods=['GET', 'POST'])
+def get_json():
+
+    case_num = request.args.get('case_num', None)
+    return redirect(url_for('visualize_blueprint.visualize', case_num=case_num))
+
+@gsa_blueprint.route('/emo', methods=['GET', 'POST'])
+def emotional_space():
+
+    case_num = request.args.get('case_num', None)
+    return redirect(url_for('visualize_blueprint.visualize', case_num=case_num))
+
+
+@gsa_blueprint.route("/_gsa_csv", methods = ['GET'])
+def upload_csv_get():
+    case_num = request.args.get('case_num', None)
+    fileDict = dao.getFileDict(case_num)
+    GSA_file_SHP = fileDict.get('GSA_Input_SHP')
+    gsaSVG = "out/gsa/mymap.svg"
+    #gsa_service.generateMap(GSA_file_SHP, gsaSVG)
+    nameMapping = gsa_service.getNameMapping(gsaSVG, fileDict['GSA_SHP_VARS'][1])
+    return render_template("gsaUploadCsv.html", names = nameMapping)
+
+@gsa_blueprint.route("/_gsa_csv", methods = ['POST'])
+def upload_csv_post():
+    case_num = request.args.get('case_num', None)
+    fileDict = dao.getFileDict(case_num)
+    #TODO: check for .csv extention error
+    fileDict['GSA_Input_CSV'] = io_service.storefile(request.files.get('GSA_Input_CSV'))
+    return redirect(url_for("gsa_blueprint.gsa_select", case_num = case_num))
+
+@gsa_blueprint.route("/_gsa_vars", methods = ['GET'])
+def shp_vars_get():
+    case_num = request.args.get('case_num', None)
+    fileDict = dao.getFileDict(case_num)
+    possible_names = gsa_service.getColumns(fileDict['GSA_Input_DBF'])
+    return render_template("gsaVars.html", id="NAME_1", names=possible_names)
+    #return render_template("gsaVars.html", id = "NAME_1", name_var = "data-name-1", names = possible_names)
+
+@gsa_blueprint.route("/_gsa_vars", methods=['POST'])
+def shp_vars_post():
+    case_num = request.args.get('case_num', None)
+    fileDict = dao.getFileDict(case_num)
+    name_var = "data-" + request.form.get('gsa-id').lower()
+    fileDict['GSA_SHP_VARS'] = [request.form.get('gsa-id'), name_var]
+    #fileDict['GSA_SHP_VARS'] = [request.form.get('gsa-id'), request.form.get('gsa-name-var')]
+    return redirect(url_for("gsa_blueprint.upload_csv_get", case_num = case_num))
+>>>>>>> d4f6c3c85381b141b922dd84d6bd3efaac02e378

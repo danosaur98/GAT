@@ -5,14 +5,20 @@ Created on Mon Aug 21 22:28:48 2017
 
 @author: ruobingwang
 """
-
+from spacy.en import English
+from gat.service import file_io
 import spacy
 import pandas as pd
 from nltk import data
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import datefinder
+import re
+import textacy
+import datetime
 from dateparser import parse
 import time
-from gat.service import file_io
+from nltk.stem import WordNetLemmatizer
+import numpy as np
 from gat.dao import dao
 
 
@@ -28,7 +34,9 @@ class SVOSENT(object):
         self.nlp = dao.spacy_load_en()
         self.sent_detector = data.load('tokenizers/punkt/english.pickle')
         self.analyzer = SentimentIntensityAnalyzer()  # for sentiment analysis
-        self.keyverbs = list(pd.read_csv('gat/service/nlp_resources/KeyVerbs.csv')['key_verbs'])
+        self.keyverbs = list(pd.read_csv('KeyVerbs.csv')['key_verbs'])
+        self.allcities = list(pd.read_csv('Allcities.csv')['City'])
+        # self.emolexdict=pd.read_csv('emolex_full.csv')
 
     def getTexts(self, directory):
         # function by Tye
@@ -55,10 +63,31 @@ class SVOSENT(object):
         parsed_phrase = self.nlp(sentence)
         names = list(parsed_phrase.ents)
         corrected_names = []
-
+        persons = []
+        locations = []
+        organizations = []
+        event_date = []
+        norp = []
+        facilities = []
+        events = []
+        cities = []
         for e in names:
             if e.label_ == 'GPE' or e.label == 'LOC' or e.label_ == 'PERSON' or e.label_ == 'ORG' or e.label == 'NORP' or e.label == 'FACILITY' or e.label == 'PRODUCT':
                 corrected_names.append(e.text)
+            if e.label_ == 'GPE' or e.label == 'LOC':
+                locations.append(e.text)
+            # if e.text.lower() in self.allcities:   # detect cities, slowdone the speed
+            #                    cities.append(e.text)
+            if e.label_ == 'PERSON':
+                persons.append(e.text)
+            if e.label_ == 'ORG':
+                organizations.append(e.text)
+            if e.label == 'NORP':
+                norp.append(e.text)
+            if e.label == 'FACILITY' or e.label == 'PRODUCT':
+                facilities.append(e.text)
+            if e.label == 'EVENT':
+                events.append(e.text)
 
         subjects = []
         objects = []
@@ -74,7 +103,21 @@ class SVOSENT(object):
                 verb = text.lemma_
                 verbs.append(verb)
 
+        # event date
+        try:
+            event_date = list(set(sentence.replace('.', '').split()) & {'Monday', 'Tuesday', 'Wednesday', 'Tursday',
+                                                                        'Friday', 'Saturday', 'Sunday', 'Today',
+                                                                        'today', 'Tomorrow', 'tomorrow', 'Yesterday',
+                                                                        'yesterday'})[0]
 
+        except:
+            try:
+                event_date = list(datefinder.find_dates(sentence))[0]
+                if str(event_date.year) not in sentence:
+                    event_date = str(event_date.month) + '/' + str(event_date.day)
+                event_date = str(event_date)
+            except:
+                event_date = None
 
 
                 # correct subject and object
@@ -99,7 +142,14 @@ class SVOSENT(object):
                 'Predicates': verbs,
                 'Objects': corrected_objects,
                 'Names': corrected_names,
-                }
+                'Event_date': event_date,
+                'Persons': persons,
+                'Locations': locations,
+                # 'Cities': cities,
+                'Organizations': organizations,
+                'NORP': norp,
+                'Facilities': facilities,
+                'Events': events}
 
     def get_svo_from_article(self, article):
         sentences = self.sentence_split(article)
@@ -131,6 +181,11 @@ class SVOSENT(object):
 
 
     def svo_senti_from_article(self, article, subject=None):
+        title = article[0:article.find('(title_end)')]
+        try:
+            date = list(datefinder.find_dates(article))[-1]
+        except:
+            date = None
         sentences = self.sentence_split(article)
         val1 = []
         val2 = []
@@ -139,7 +194,15 @@ class SVOSENT(object):
             val1.append(self.sentimentAnalysis(sent))
             val2.append(self.get_svo(sent))
         result = pd.merge(pd.DataFrame(val1), pd.DataFrame(val2), on='Sentence')[
-            ['Sentence', 'Names', 'Subjects', 'Predicates', 'Objects', 'compound']]
+            ['Sentence', 'Names', 'Persons', 'Organizations', 'Facilities', 'Locations', 'Subjects', 'Predicates',
+             'Objects', 'compound', 'Event_date']]
+        result.rename(columns={'compound': 'Sentiment'}, inplace=True)
+        #        try:
+        #            result['date']=date
+        #        except:
+        #            result['date']='-----'
+        result['Article_date'] = date
+        result['Article_title'] = title
 
         def correctdate(eventdate, articledate):
             if eventdate == None:
@@ -152,8 +215,43 @@ class SVOSENT(object):
                 corrected_date = None
             return corrected_date
 
+        result['Event_date'] = result['Event_date'].apply(lambda x: correctdate(x, date))
+        #        try:
+        #            result.loc[result['date']> datetime.datetime.today() + datetime.timedelta(days=1),'date']='-----'
+        #        except:
+        #            pass
         result = result.drop_duplicates(subset=['Sentence'], keep='first')  # remove duplicate rows
-
+        '''
+        ###emolex start
+        def getEmolex(word):
+            wordlist=re.findall(r'\w+', word)
+            wordlist=[e.lower() for e in wordlist]
+            df=pd.DataFrame(columns=list(self.emolexdict['type'].unique()))
+        
+            dflist=[] 
+            for e in wordlist:
+        
+                temp=self.emolexdict[self.emolexdict['word']==e]
+                pivot=temp.pivot(index='word', columns='type', values='Weight').reset_index()
+                dflist.append(pivot)
+            result=pd.concat(dflist)
+            features=list(result)
+            features.remove('word')
+            df[features]=result[features]
+            df['Sentence']=word
+        
+            final=df.groupby('Sentence').apply(np.mean).reset_index()
+            return final
+        
+        emolex_all=[]
+        for sent in result['Sentence']:
+            dft=getEmolex(sent)
+            emolex_all.append(dft)
+        
+        result_emolex=pd.concat(emolex_all)
+        result=result.join(result_emolex.set_index('Sentence'),on='Sentence')
+        ###emolex end
+        '''
         if subject == None:
             return result
         else:
